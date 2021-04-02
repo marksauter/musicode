@@ -1,0 +1,22 @@
+[package]
+name = "musicode"
+description = "A music theory library"
+license = "MIT"
+version = "0.1.0"
+readme = "README.md"
+repository = "https://github.com/marksauter/musicode"
+authors = ["Mark Sauter dr.funk.mark@gmail.com"]
+edition = "2018"
+exclude = [".gitignore"]
+keywords = ["music", "music-theory"]
+
+[dependencies]
+num-integer = "0.1.44"
+
+[dependencies.arrayvec]
+version = "0.7.0"
+features = ["std", "serde"]
+
+[dependencies.serde]
+version = "1.0.125"
+features = ["derive"]
