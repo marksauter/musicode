@@ -1,5 +1,4 @@
-use crate::consts::OCTAVE;
-use num_integer::Integer;
+use crate::OCTAVE;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Pitch {
@@ -25,7 +24,8 @@ impl Default for Pitch {
 
 impl Pitch {
     pub fn from_interval(interval: u8) -> Pitch {
-        let (octave, pitch) = interval.div_rem(&OCTAVE);
+        let pitch = interval % OCTAVE;
+        let octave = interval / OCTAVE;
         use Pitch::*;
         match pitch {
             0 => C(octave),

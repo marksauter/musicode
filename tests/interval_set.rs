@@ -2,7 +2,7 @@ use musicode::IntervalSet;
 
 #[test]
 fn test_simple() {
-    let mut set: IntervalSet<4> = IntervalSet::new();
+    let mut set: IntervalSet = IntervalSet::new();
 
     assert_eq!(set.insert(5), (0, true));
     assert_eq!(set.insert(3), (0, true));

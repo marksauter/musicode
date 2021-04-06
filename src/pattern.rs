@@ -1,10 +1,9 @@
-use crate::consts::OCTAVE;
-use num_integer::Integer;
+use crate::OCTAVE;
 use std::cmp::Ordering;
 
-pub trait Pattern<'a, const N: usize>: Sized {
+pub trait Pattern<'a>: Sized {
     /// Associated searcher for this pattern
-    type Searcher: Searcher<'a, N>;
+    type Searcher: Searcher<'a>;
 
     /// Constructs the associated seracher from
     /// `self` and the `scale` to search in.
@@ -19,42 +18,49 @@ pub trait Pattern<'a, const N: usize>: Sized {
     /// Checks whether the pattern matches at the front of the scale
     #[inline]
     fn is_tonic_of(self, scale: &'a [u8]) -> bool {
-        matches!(self.into_searcher(scale).next(), SearchStep::Match(_))
+        matches!(
+            self.into_searcher(scale).next_match().as_deref(),
+            Some(&[0, ..])
+        )
     }
 
     /// Checks whether the pattern matches at the back of the scale
     #[inline]
     fn is_leading_of(self, scale: &'a [u8]) -> bool
     where
-        Self::Searcher: ReverseSearcher<'a, N>,
+        Self::Searcher: ReverseSearcher<'a>,
     {
-        matches!(self.into_searcher(scale).next_back(), SearchStep::Match(_))
+        matches!(
+            self.into_searcher(scale).next_match_back().as_deref(),
+            Some([j, ..]) if scale.len() == *j
+        )
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum SearchStep<const N: usize> {
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub enum SearchStep {
     /// Expresses that a match of the interval sequence has been found at
-    /// `[scale[a], scale[b], ..; N]`
-    Match([usize; N]),
-    /// Expresses that `[Some(scale[a]), Some(scale[b]), None, ..; N]` has been
-    /// rejected as a
-    /// possible match of the interval sequence.
+    /// `[scale[a], scale[b], ..]`
+    Match(Vec<usize>),
+    /// Expresses that `[scale[a], scale[b], .., scale[n]]` has been
+    /// rejected as a possible match of the interval sequence. The last value
+    /// in the returned vector indicates the scale position at which the pattern
+    /// failed to match.
     ///
     /// Note that there might be more than one `Reject` between two `Match`es,
     /// there is no requirement for them to be combined into one.
-    Reject([Option<usize>; N]),
+    Reject(Vec<usize>),
     /// Expresses that every root of the scale has been visited, ending the
     /// iteration.
     Done,
 }
 
-pub unsafe trait Searcher<'a, const N: usize> {
+pub unsafe trait Searcher<'a> {
     fn scale(&self) -> &'a [u8];
 
-    fn next(&mut self) -> SearchStep<N>;
+    fn next(&mut self) -> SearchStep;
 
-    fn next_match(&mut self) -> Option<[usize; N]> {
+    fn next_match(&mut self) -> Option<Vec<usize>> {
         loop {
             match self.next() {
                 SearchStep::Match(a) => return Some(a),
@@ -64,7 +70,7 @@ pub unsafe trait Searcher<'a, const N: usize> {
         }
     }
 
-    fn next_reject(&mut self) -> Option<[Option<usize>; N]> {
+    fn next_reject(&mut self) -> Option<Vec<usize>> {
         loop {
             match self.next() {
                 SearchStep::Reject(a) => return Some(a),
@@ -75,10 +81,10 @@ pub unsafe trait Searcher<'a, const N: usize> {
     }
 }
 
-pub unsafe trait ReverseSearcher<'a, const N: usize>: Searcher<'a, N> {
-    fn next_back(&mut self) -> SearchStep<N>;
+pub unsafe trait ReverseSearcher<'a>: Searcher<'a> {
+    fn next_back(&mut self) -> SearchStep;
 
-    fn next_match_back(&mut self) -> Option<[usize; N]> {
+    fn next_match_back(&mut self) -> Option<Vec<usize>> {
         loop {
             match self.next_back() {
                 SearchStep::Match(a) => return Some(a),
@@ -88,7 +94,7 @@ pub unsafe trait ReverseSearcher<'a, const N: usize>: Searcher<'a, N> {
         }
     }
 
-    fn next_reject_back(&mut self) -> Option<[Option<usize>; N]> {
+    fn next_reject_back(&mut self) -> Option<Vec<usize>> {
         loop {
             match self.next_back() {
                 SearchStep::Reject(a) => return Some(a),
@@ -99,7 +105,7 @@ pub unsafe trait ReverseSearcher<'a, const N: usize>: Searcher<'a, N> {
     }
 }
 
-pub trait DoubleEndedSearcher<'a, const N: usize>: ReverseSearcher<'a, N> {}
+pub trait DoubleEndedSearcher<'a>: ReverseSearcher<'a> {}
 
 #[derive(Clone, Debug)]
 pub struct IntervalSearcher<'a> {
@@ -134,19 +140,20 @@ impl<'a> IntervalSearcher<'a> {
     }
 }
 
-unsafe impl<'a> Searcher<'a, 2> for IntervalSearcher<'a> {
+unsafe impl<'a> Searcher<'a> for IntervalSearcher<'a> {
     #[inline]
     fn scale(&self) -> &'a [u8] {
         self.scale
     }
-    fn next(&mut self) -> SearchStep<2> {
+    fn next(&mut self) -> SearchStep {
         let len = self.scale.len();
         let old_root = self.root;
         let root_slice = unsafe { self.scale.get_unchecked(old_root..self.root_back) };
         let mut root_iter = root_slice.iter();
         let old_root_len = root_iter.len();
         if let Some(&r) = root_iter.next() {
-            let (octave, finger) = self.finger.div_rem(&len);
+            let finger = self.finger % len;
+            let octave = self.finger / len;
             let finger_back = if self.root == self.root_back {
                 self.finger_back
             } else {
@@ -164,16 +171,16 @@ unsafe impl<'a> Searcher<'a, 2> for IntervalSearcher<'a> {
                 };
                 self.finger += old_finger_len - finger_iter.len();
                 match (f + (octave * OCTAVE as usize) as u8 - r).cmp(&self.interval) {
-                    Ordering::Less => SearchStep::Reject([Some(old_root), Some(old_finger)]),
+                    Ordering::Less => SearchStep::Reject(vec![old_root, old_finger]),
                     Ordering::Equal => {
                         self.root += old_root_len - root_iter.len();
                         self.finger = self.root;
-                        SearchStep::Match([old_root, old_finger])
+                        SearchStep::Match(vec![old_root, old_finger])
                     }
                     Ordering::Greater => {
                         self.root += old_root_len - root_iter.len();
                         self.finger = self.root;
-                        SearchStep::Reject([Some(old_root), Some(old_finger)])
+                        SearchStep::Reject(vec![old_root, old_finger])
                     }
                 }
             } else {
@@ -185,8 +192,8 @@ unsafe impl<'a> Searcher<'a, 2> for IntervalSearcher<'a> {
     }
 }
 
-unsafe impl<'a> ReverseSearcher<'a, 2> for IntervalSearcher<'a> {
-    fn next_back(&mut self) -> SearchStep<2> {
+unsafe impl<'a> ReverseSearcher<'a> for IntervalSearcher<'a> {
+    fn next_back(&mut self) -> SearchStep {
         let len = self.scale.len();
         let old_root = self.root_back;
         let root_slice = unsafe { self.scale.get_unchecked(self.root..old_root) };
@@ -220,16 +227,14 @@ unsafe impl<'a> ReverseSearcher<'a, 2> for IntervalSearcher<'a> {
                     Ordering::Less => {
                         self.root_back -= old_root_len - root_iter.len();
                         self.finger_back = self.root_back + len;
-                        SearchStep::Reject([Some(self.root_back), Some(old_finger)])
+                        SearchStep::Reject(vec![self.root_back, old_finger])
                     }
                     Ordering::Equal => {
                         self.root_back -= old_root_len - root_iter.len();
                         self.finger_back = self.root_back + len;
-                        SearchStep::Match([self.root_back, old_finger])
+                        SearchStep::Match(vec![self.root_back, old_finger])
                     }
-                    Ordering::Greater => {
-                        SearchStep::Reject([Some(self.root_back - 1), Some(old_finger)])
-                    }
+                    Ordering::Greater => SearchStep::Reject(vec![self.root_back - 1, old_finger]),
                 }
             } else {
                 SearchStep::Done
@@ -241,7 +246,7 @@ unsafe impl<'a> ReverseSearcher<'a, 2> for IntervalSearcher<'a> {
 }
 
 #[derive(Clone, Debug)]
-pub struct ChordSearcher<'a, 'b, const N: usize> {
+pub struct ChordSearcher<'a, 'b> {
     /// The scale in which we are searching.
     scale: &'a [u8],
     /// `root` is the current index being used as the root of
@@ -250,91 +255,70 @@ pub struct ChordSearcher<'a, 'b, const N: usize> {
     /// `root_back` is the current index being used as the root of
     /// the interval for the reverse search.
     root_back: usize,
-    /// `finger` is the current index of the forward search.
-    finger: usize,
-    /// `finger_back` is the current index of the reverse search.
-    finger_back: usize,
     /// The chord being searched for.
-    chord: &'b [u8; N],
+    chord: &'b [u8],
 }
 
-impl<'a, 'b, const N: usize> ChordSearcher<'a, 'b, N> {
-    pub fn new(scale: &'a [u8], chord: &'b [u8; N]) -> Self {
+impl<'a, 'b> ChordSearcher<'a, 'b> {
+    pub fn new(scale: &'a [u8], chord: &'b [u8]) -> Self {
         let len = scale.len();
-        let root_back = len;
         ChordSearcher {
             scale,
             root: 0,
-            root_back,
-            finger: 0,
-            finger_back: root_back + len,
+            root_back: len,
             chord,
         }
     }
 }
 
-unsafe impl<'a, 'b, const N: usize> Searcher<'a, N> for ChordSearcher<'a, 'b, N> {
+unsafe impl<'a, 'b> Searcher<'a> for ChordSearcher<'a, 'b> {
     #[inline]
     fn scale(&self) -> &'a [u8] {
         self.scale
     }
-    fn next(&mut self) -> SearchStep<N> {
+    fn next(&mut self) -> SearchStep {
         let len = self.scale.len();
         let old_root = self.root;
         let root_slice = unsafe { self.scale.get_unchecked(old_root..self.root_back) };
         let mut root_iter = root_slice.iter();
         let old_root_len = root_iter.len();
         if let Some(&r) = root_iter.next() {
-            let mut scale_indices: [Option<usize>; N] = [None; N];
-            let mut chord_iter = self.chord.iter().enumerate();
+            let mut chord_iter = self.chord.iter();
+            let mut scale_indices: Vec<usize> = Vec::new();
+            let mut finger = old_root;
             'chord: loop {
-                if let Some((i, interval)) = chord_iter.next() {
+                if let Some(interval) = chord_iter.next() {
                     let interval = interval % OCTAVE;
                     'interval: loop {
-                        let (octave, finger) = self.finger.div_rem(&len);
-                        let finger_back = if self.root == self.root_back {
-                            self.finger_back
-                        } else {
-                            len
-                        };
-                        let finger_slice = unsafe { self.scale.get_unchecked(finger..finger_back) };
+                        let finger_index = finger % len;
+                        let octave = finger / len;
+                        let finger_slice = unsafe { self.scale.get_unchecked(finger_index..len) };
                         let mut finger_iter = finger_slice.iter();
                         let old_finger_len = finger_iter.len();
                         if let Some(&f) = finger_iter.next() {
                             // finger canNOT be >= to the `len`, because it represents a scale index
-                            let old_finger = if self.finger >= len {
-                                self.finger - len
-                            } else {
-                                self.finger
-                            };
-                            self.finger += old_finger_len - finger_iter.len();
+                            let old_finger = if finger >= len { finger - len } else { finger };
+                            finger += old_finger_len - finger_iter.len();
                             match (f + (octave * OCTAVE as usize) as u8 - r).cmp(&interval) {
                                 Ordering::Less => continue 'interval,
                                 Ordering::Equal => {
-                                    scale_indices[i] = Some(old_finger);
+                                    scale_indices.push(old_finger);
                                     continue 'chord;
                                 }
                                 Ordering::Greater => {
                                     self.root += old_root_len - root_iter.len();
-                                    self.finger = self.root;
-                                    scale_indices[i] = Some(old_finger);
+                                    scale_indices.push(old_finger);
                                     return SearchStep::Reject(scale_indices);
                                 }
                             }
                         } else {
                             self.root += old_root_len - root_iter.len();
-                            self.finger = self.root;
                             return SearchStep::Reject(scale_indices);
                         }
                     }
                 } else {
                     self.root += old_root_len - root_iter.len();
-                    self.finger = self.root;
-                    let mut match_indices: [usize; N] = [0; N];
-                    for (i, interval) in scale_indices.iter().enumerate() {
-                        match_indices[i] = interval.unwrap();
-                    }
-                    return SearchStep::Match(match_indices);
+                    return SearchStep::Match(scale_indices);
                 }
             }
         } else {
@@ -343,70 +327,50 @@ unsafe impl<'a, 'b, const N: usize> Searcher<'a, N> for ChordSearcher<'a, 'b, N>
     }
 }
 
-unsafe impl<'a, 'b, const N: usize> ReverseSearcher<'a, N> for ChordSearcher<'a, 'b, N> {
-    fn next_back(&mut self) -> SearchStep<N> {
+unsafe impl<'a, 'b> ReverseSearcher<'a> for ChordSearcher<'a, 'b> {
+    fn next_back(&mut self) -> SearchStep {
         let len = self.scale.len();
         let old_root = self.root_back;
         let root_slice = unsafe { self.scale.get_unchecked(self.root..old_root) };
         let mut root_iter = root_slice.iter();
         let old_root_len = root_iter.len();
         if let Some(&r) = root_iter.next_back() {
-            let mut scale_indices: [Option<usize>; N] = [None; N];
-            let mut chord_iter = self.chord.iter().enumerate();
+            let mut chord_iter = self.chord.iter();
+            let mut scale_indices: Vec<usize> = Vec::new();
+            let mut finger = old_root - 1;
             'chord: loop {
-                if let Some((i, interval)) = chord_iter.next_back() {
+                if let Some(interval) = chord_iter.next() {
                     let interval = interval % OCTAVE;
                     'interval: loop {
-                        let octave = if self.finger_back > len { 1 } else { 0 };
-                        // finger_back must be <= to the `len`, because it is the `end` value of a Range
-                        let finger_back = if self.finger_back > len {
-                            self.finger_back - len
-                        } else {
-                            self.finger_back
-                        };
-                        let finger = if self.root_back == self.root {
-                            self.finger
-                        } else {
-                            0
-                        };
-                        let finger_slice = unsafe { self.scale.get_unchecked(finger..finger_back) };
+                        let finger_index = finger % len;
+                        let octave = finger / len;
+                        let finger_slice = unsafe { self.scale.get_unchecked(finger_index..len) };
                         let mut finger_iter = finger_slice.iter();
                         let old_finger_len = finger_iter.len();
-                        if let Some(&f) = finger_iter.next_back() {
-                            self.finger_back -= old_finger_len - finger_iter.len();
-                            // finger_back canNOT be >= to the `len`, because now it represents a scale index
-                            let old_finger = if self.finger_back >= len {
-                                self.finger_back - len
-                            } else {
-                                self.finger_back
-                            };
+                        if let Some(&f) = finger_iter.next() {
+                            // finger canNOT be >= to the `len`, because it represents a scale index
+                            let old_finger = if finger >= len { finger - len } else { finger };
+                            finger += old_finger_len - finger_iter.len();
                             match (f + (octave * OCTAVE as usize) as u8 - r).cmp(&interval) {
-                                Ordering::Less => {
-                                    self.root_back -= old_root_len - root_iter.len();
-                                    self.finger_back = self.root_back + len;
-                                    scale_indices[i] = Some(old_finger);
-                                    return SearchStep::Reject(scale_indices);
-                                }
+                                Ordering::Less => continue 'interval,
                                 Ordering::Equal => {
-                                    scale_indices[i] = Some(old_finger);
+                                    scale_indices.push(old_finger);
                                     continue 'chord;
                                 }
-                                Ordering::Greater => continue 'interval,
+                                Ordering::Greater => {
+                                    self.root_back -= old_root_len - root_iter.len();
+                                    scale_indices.push(old_finger);
+                                    return SearchStep::Reject(scale_indices);
+                                }
                             }
                         } else {
                             self.root_back -= old_root_len - root_iter.len();
-                            self.finger_back = self.root_back + len;
                             return SearchStep::Reject(scale_indices);
                         }
                     }
                 } else {
                     self.root_back -= old_root_len - root_iter.len();
-                    self.finger_back = self.root_back + len;
-                    let mut match_indices: [usize; N] = [0; N];
-                    for (i, interval) in scale_indices.iter().enumerate() {
-                        match_indices[i] = interval.unwrap();
-                    }
-                    return SearchStep::Match(match_indices);
+                    return SearchStep::Match(scale_indices);
                 }
             }
         } else {
@@ -415,7 +379,7 @@ unsafe impl<'a, 'b, const N: usize> ReverseSearcher<'a, N> for ChordSearcher<'a,
     }
 }
 
-impl<'a> Pattern<'a, 2> for u8 {
+impl<'a> Pattern<'a> for u8 {
     type Searcher = IntervalSearcher<'a>;
 
     #[inline]
@@ -424,11 +388,20 @@ impl<'a> Pattern<'a, 2> for u8 {
     }
 }
 
-impl<'a, 'b, const N: usize> Pattern<'a, N> for &'b [u8; N] {
-    type Searcher = ChordSearcher<'a, 'b, N>;
+impl<'a, 'b> Pattern<'a> for &'b [u8] {
+    type Searcher = ChordSearcher<'a, 'b>;
 
     #[inline]
-    fn into_searcher(self, scale: &'a [u8]) -> ChordSearcher<'a, 'b, N> {
+    fn into_searcher(self, scale: &'a [u8]) -> ChordSearcher<'a, 'b> {
+        ChordSearcher::new(scale, self)
+    }
+}
+
+impl<'a, 'b, const N: usize> Pattern<'a> for &'b [u8; N] {
+    type Searcher = ChordSearcher<'a, 'b>;
+
+    #[inline]
+    fn into_searcher(self, scale: &'a [u8]) -> ChordSearcher<'a, 'b> {
         ChordSearcher::new(scale, self)
     }
 }

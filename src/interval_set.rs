@@ -1,36 +1,35 @@
-use crate::iter::{MatchIndices, MatchIndicesInternal, PitchIndices, Pitches};
-use crate::pattern::Pattern;
-use crate::pitch::Pitch;
-use arrayvec::{ArrayVec, Drain};
+use crate::iter::Pitches;
+use crate::Pitch;
 use serde::{Deserialize, Serialize};
-use std::convert::{TryFrom, TryInto};
 use std::iter::{Extend, FromIterator};
 use std::ops::{Deref, DerefMut, RangeBounds};
 
-type CapacityError = arrayvec::CapacityError<u8>;
-
+/// Forward sorted set of unique intervals, backed by an Vec.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
-pub struct IntervalSet<const CAP: usize> {
-    set: ArrayVec<u8, CAP>,
+pub struct IntervalSet {
+    set: Vec<u8>,
 }
 
 #[allow(dead_code)]
-impl<const CAP: usize> IntervalSet<CAP> {
+impl IntervalSet {
     /// Create a new, empty `IntervalSet`.
-    pub fn new() -> IntervalSet<CAP> {
+    pub fn new() -> IntervalSet {
+        IntervalSet { set: Vec::new() }
+    }
+
+    pub fn with_capacity(capacity: usize) -> IntervalSet {
         IntervalSet {
-            set: ArrayVec::new(),
+            set: Vec::with_capacity(capacity),
         }
     }
 
-    /// Create a new, empty `IntervalSet` (const fn).
-    pub fn new_const() -> IntervalSet<CAP> {
-        IntervalSet {
-            set: ArrayVec::new_const(),
-        }
+    pub fn from_vec(mut vec: Vec<u8>) -> Self {
+        vec.sort_unstable();
+        vec.dedup();
+        IntervalSet { set: vec }
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn len(&self) -> usize {
         self.set.len()
     }
@@ -40,21 +39,6 @@ impl<const CAP: usize> IntervalSet<CAP> {
         self.set.is_empty()
     }
 
-    #[inline(always)]
-    pub fn capacity(&self) -> usize {
-        CAP
-    }
-
-    #[inline]
-    pub fn is_full(&self) -> bool {
-        self.set.is_full()
-    }
-
-    #[inline]
-    pub fn remaining_capacity(&self) -> usize {
-        self.set.remaining_capacity()
-    }
-
     /// Insert an interval into sorted position.
     ///
     /// If the set did not have this interval, a tuple of the order index at which it
@@ -62,10 +46,6 @@ impl<const CAP: usize> IntervalSet<CAP> {
     ///
     /// If the set did have this interval, a tuple of the index at which it was found
     /// and false is returned.
-    ///
-    /// It is an error if the set is full.
-    ///
-    /// ***Panics*** if the set is full.
     pub fn insert(&mut self, interval: u8) -> (usize, bool) {
         match self.find_or_insert(interval) {
             Ok(i) => (i, false),
@@ -73,27 +53,11 @@ impl<const CAP: usize> IntervalSet<CAP> {
         }
     }
 
-    /// Insert an interval into sorted position, returning the order index with `Ok`
-    /// at which it was placed.
-    ///
-    /// Returns an error if the set is already at full capacity.
-    pub fn try_insert(&mut self, interval: u8) -> Result<usize, CapacityError> {
-        let insert_at = match self.binary_search(&interval) {
-            Ok(insert_at) | Err(insert_at) => insert_at,
-        };
-        self.set.try_insert(insert_at, interval)?;
-        Ok(insert_at)
-    }
-
-    /// Find the interval and return the index with `Ok`, otherwise insert them
+    /// Find the interval and return the index with `Ok`, otherwise insert the
     /// interval and return the new interval index with `Err`.
-    ///
-    /// It is an error if the set is full.
-    ///
-    /// ***Panics*** if the set is full.
     pub fn find_or_insert(&mut self, interval: u8) -> Result<usize, usize> {
         self.binary_search(&interval).map_err(|insert_at| {
-            self.set.try_insert(insert_at, interval).unwrap();
+            self.set.insert(insert_at, interval);
             insert_at
         })
     }
@@ -128,21 +92,17 @@ impl<const CAP: usize> IntervalSet<CAP> {
     #[inline]
     pub fn retain<F>(&mut self, f: F)
     where
-        F: FnMut(&mut u8) -> bool,
+        F: FnMut(&u8) -> bool,
     {
         self.set.retain(f)
     }
 
     #[inline]
-    pub fn drain<R>(&mut self, range: R) -> Drain<u8, CAP>
+    pub fn drain<R>(&mut self, range: R) -> std::vec::Drain<u8>
     where
         R: RangeBounds<usize>,
     {
         self.set.drain(range)
-    }
-
-    pub fn into_inner(self) -> Result<[u8; CAP], ArrayVec<u8, CAP>> {
-        self.set.into_inner()
     }
 
     #[inline]
@@ -161,23 +121,9 @@ impl<const CAP: usize> IntervalSet<CAP> {
             iter: self.iter(),
         }
     }
-
-    pub fn pitch_indices(&self, root: Pitch) -> PitchIndices<'_> {
-        PitchIndices {
-            front_offset: 0,
-            iter: self.pitches(root),
-        }
-    }
-
-    pub fn match_indices<'a, P, const N: usize>(&'a self, pat: P) -> MatchIndices<'a, P, N>
-    where
-        P: Pattern<'a, N>,
-    {
-        MatchIndices(MatchIndicesInternal(pat.into_searcher(&self)))
-    }
 }
 
-impl<const CAP: usize> Deref for IntervalSet<CAP> {
+impl Deref for IntervalSet {
     type Target = [u8];
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -185,41 +131,58 @@ impl<const CAP: usize> Deref for IntervalSet<CAP> {
     }
 }
 
-impl<const CAP: usize> DerefMut for IntervalSet<CAP> {
+impl DerefMut for IntervalSet {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_slice()
     }
 }
 
-impl<const CAP: usize> From<[u8; CAP]> for IntervalSet<CAP> {
-    fn from(array: [u8; CAP]) -> Self {
-        IntervalSet { set: array.into() }
+impl<const N: usize> From<[u8; N]> for IntervalSet {
+    fn from(array: [u8; N]) -> Self {
+        let mut is = IntervalSet::new();
+        is.extend(array.iter());
+        is
     }
 }
 
-impl<const CAP: usize> TryFrom<&[u8]> for IntervalSet<CAP> {
-    type Error = arrayvec::CapacityError;
-
-    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
-        let set: ArrayVec<u8, CAP> = slice.try_into()?;
-        Ok(IntervalSet { set })
+impl From<&[u8]> for IntervalSet {
+    fn from(slice: &[u8]) -> Self {
+        let mut is = IntervalSet::new();
+        is.extend(slice.into_iter().copied());
+        is
     }
 }
 
-impl<const CAP: usize> Extend<u8> for IntervalSet<CAP> {
+impl From<&mut [u8]> for IntervalSet {
+    fn from(slice: &mut [u8]) -> Self {
+        let mut is = IntervalSet::new();
+        is.extend(slice.iter());
+        is
+    }
+}
+
+impl From<Vec<u8>> for IntervalSet {
+    fn from(vec: Vec<u8>) -> Self {
+        IntervalSet::from_vec(vec)
+    }
+}
+
+impl Extend<u8> for IntervalSet {
     fn extend<I: IntoIterator<Item = u8>>(&mut self, iter: I) {
-        self.set.extend(iter)
+        for i in iter {
+            self.insert(i);
+        }
     }
 }
 
-impl<'a, const CAP: usize> Extend<&'a u8> for IntervalSet<CAP> {
+impl<'a> Extend<&'a u8> for IntervalSet {
     fn extend<I: IntoIterator<Item = &'a u8>>(&mut self, iter: I) {
         self.extend(iter.into_iter().copied());
     }
 }
 
-impl<const CAP: usize> FromIterator<u8> for IntervalSet<CAP> {
+impl FromIterator<u8> for IntervalSet {
     fn from_iter<I: IntoIterator<Item = u8>>(iter: I) -> Self {
         let mut is = IntervalSet::new();
         is.extend(iter);
@@ -227,7 +190,7 @@ impl<const CAP: usize> FromIterator<u8> for IntervalSet<CAP> {
     }
 }
 
-impl<'a, const CAP: usize> FromIterator<&'a u8> for IntervalSet<CAP> {
+impl<'a> FromIterator<&'a u8> for IntervalSet {
     fn from_iter<I: IntoIterator<Item = &'a u8>>(iter: I) -> Self {
         let mut is = IntervalSet::new();
         is.extend(iter);
@@ -235,7 +198,7 @@ impl<'a, const CAP: usize> FromIterator<&'a u8> for IntervalSet<CAP> {
     }
 }
 
-impl<const CAP: usize> FromIterator<Pitch> for IntervalSet<CAP> {
+impl FromIterator<Pitch> for IntervalSet {
     fn from_iter<I: IntoIterator<Item = Pitch>>(iter: I) -> Self {
         let mut is = IntervalSet::new();
         is.extend(iter.into_iter().map(|p| p.as_interval()));
@@ -243,7 +206,7 @@ impl<const CAP: usize> FromIterator<Pitch> for IntervalSet<CAP> {
     }
 }
 
-impl<'a, const CAP: usize> FromIterator<&'a Pitch> for IntervalSet<CAP> {
+impl<'a> FromIterator<&'a Pitch> for IntervalSet {
     fn from_iter<I: IntoIterator<Item = &'a Pitch>>(iter: I) -> Self {
         let mut is = IntervalSet::new();
         is.extend(iter.into_iter().map(|p| p.as_interval()));
@@ -251,7 +214,7 @@ impl<'a, const CAP: usize> FromIterator<&'a Pitch> for IntervalSet<CAP> {
     }
 }
 
-impl<'a, const CAP: usize> IntoIterator for &'a IntervalSet<CAP> {
+impl<'a> IntoIterator for &'a IntervalSet {
     type Item = &'a u8;
     type IntoIter = std::slice::Iter<'a, u8>;
 
@@ -260,7 +223,7 @@ impl<'a, const CAP: usize> IntoIterator for &'a IntervalSet<CAP> {
     }
 }
 
-impl<'a, const CAP: usize> IntoIterator for &'a mut IntervalSet<CAP> {
+impl<'a> IntoIterator for &'a mut IntervalSet {
     type Item = &'a mut u8;
     type IntoIter = std::slice::IterMut<'a, u8>;
 
@@ -269,34 +232,34 @@ impl<'a, const CAP: usize> IntoIterator for &'a mut IntervalSet<CAP> {
     }
 }
 
-impl<const CAP: usize> IntoIterator for IntervalSet<CAP> {
+impl IntoIterator for IntervalSet {
     type Item = u8;
-    type IntoIter = arrayvec::IntoIter<u8, CAP>;
+    type IntoIter = std::vec::IntoIter<u8>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.set.into_iter()
     }
 }
 
-impl<const CAP: usize> std::borrow::Borrow<[u8]> for IntervalSet<CAP> {
+impl std::borrow::Borrow<[u8]> for IntervalSet {
     fn borrow(&self) -> &[u8] {
         self
     }
 }
 
-impl<const CAP: usize> std::borrow::BorrowMut<[u8]> for IntervalSet<CAP> {
+impl std::borrow::BorrowMut<[u8]> for IntervalSet {
     fn borrow_mut(&mut self) -> &mut [u8] {
         self
     }
 }
 
-impl<const CAP: usize> AsRef<[u8]> for IntervalSet<CAP> {
+impl AsRef<[u8]> for IntervalSet {
     fn as_ref(&self) -> &[u8] {
         self
     }
 }
 
-impl<const CAP: usize> AsMut<[u8]> for IntervalSet<CAP> {
+impl AsMut<[u8]> for IntervalSet {
     fn as_mut(&mut self) -> &mut [u8] {
         self
     }

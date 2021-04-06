@@ -11,11 +11,6 @@ exclude = [".gitignore"]
 keywords = ["music", "music-theory"]
 
 [dependencies]
-num-integer = "0.1.44"
-
-[dependencies.arrayvec]
-version = "0.7.0"
-features = ["std", "serde"]
 
 [dependencies.serde]
 version = "1.0.125"

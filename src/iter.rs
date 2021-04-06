@@ -57,63 +57,11 @@ impl<'a> DoubleEndedIterator for Pitches<'a> {
 
 impl FusedIterator for Pitches<'_> {}
 
-pub struct PitchIndices<'a> {
-    pub(super) front_offset: usize,
-    pub(super) iter: Pitches<'a>,
-}
+pub(super) struct MatchIndicesInternal<'a, P: Pattern<'a>>(pub(super) P::Searcher);
 
-impl<'a> Iterator for PitchIndices<'a> {
-    type Item = (usize, Pitch);
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        let pre_len = self.iter.iter.len();
-        match self.iter.next() {
-            None => None,
-            Some(p) => {
-                let index = self.front_offset;
-                let len = self.iter.iter.len();
-                self.front_offset += pre_len - len;
-                Some((index, p))
-            }
-        }
-    }
-
-    #[inline]
-    fn count(self) -> usize {
-        self.iter.count()
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
-
-    #[inline]
-    fn last(mut self) -> Option<Self::Item> {
-        self.next_back()
-    }
-}
-
-impl<'a> DoubleEndedIterator for PitchIndices<'a> {
-    #[inline]
-    fn next_back(&mut self) -> Option<Self::Item> {
-        self.iter.next_back().map(|p| {
-            let index = self.front_offset + self.iter.iter.len();
-            (index, p)
-        })
-    }
-}
-
-impl FusedIterator for PitchIndices<'_> {}
-
-pub(super) struct MatchIndicesInternal<'a, P: Pattern<'a, N>, const N: usize>(
-    pub(super) P::Searcher,
-);
-
-impl<'a, P, const N: usize> fmt::Debug for MatchIndicesInternal<'a, P, N>
+impl<'a, P> fmt::Debug for MatchIndicesInternal<'a, P>
 where
-    P: Pattern<'a, N, Searcher: fmt::Debug>,
+    P: Pattern<'a, Searcher: fmt::Debug>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("MatchIndicesInternal")
@@ -122,36 +70,34 @@ where
     }
 }
 
-impl<'a, P: Pattern<'a, N>, const N: usize> MatchIndicesInternal<'a, P, N> {
+impl<'a, P: Pattern<'a>> MatchIndicesInternal<'a, P> {
     #[inline]
-    fn next(&mut self) -> Option<(usize, [u8; N])> {
+    fn next(&mut self) -> Option<(usize, Vec<u8>)> {
         self.0.next_match().map(|scale_indices| {
-            let mut match_indices: [u8; N] = [0; N];
-            for (i, &index) in scale_indices.iter().enumerate() {
-                unsafe { match_indices[i] = *self.0.scale().get_unchecked(index) };
-            }
-            (scale_indices[0], match_indices)
+            (
+                scale_indices[0],
+                scale_indices.iter().map(|i| self.0.scale()[*i]).collect(),
+            )
         })
     }
 
     #[inline]
-    fn next_back(&mut self) -> Option<(usize, [u8; N])>
+    fn next_back(&mut self) -> Option<(usize, Vec<u8>)>
     where
-        P::Searcher: ReverseSearcher<'a, N>,
+        P::Searcher: ReverseSearcher<'a>,
     {
         self.0.next_match_back().map(|scale_indices| {
-            let mut match_indices: [u8; N] = [0; N];
-            for (i, &index) in scale_indices.iter().enumerate() {
-                unsafe { match_indices[i] = *self.0.scale().get_unchecked(index) };
-            }
-            (scale_indices[0], match_indices)
+            (
+                scale_indices[0],
+                scale_indices.iter().map(|i| self.0.scale()[*i]).collect(),
+            )
         })
     }
 }
 
-impl<'a, P, const N: usize> Clone for MatchIndicesInternal<'a, P, N>
+impl<'a, P> Clone for MatchIndicesInternal<'a, P>
 where
-    P: Pattern<'a, N, Searcher: Clone>,
+    P: Pattern<'a, Searcher: Clone>,
 {
     fn clone(&self) -> Self {
         let s = self;
@@ -159,13 +105,11 @@ where
     }
 }
 
-pub struct MatchIndices<'a, P: Pattern<'a, N>, const N: usize>(
-    pub(super) MatchIndicesInternal<'a, P, N>,
-);
+pub struct MatchIndices<'a, P: Pattern<'a>>(pub(super) MatchIndicesInternal<'a, P>);
 
-impl<'a, P, const N: usize> fmt::Debug for MatchIndices<'a, P, N>
+impl<'a, P> fmt::Debug for MatchIndices<'a, P>
 where
-    P: Pattern<'a, N, Searcher: fmt::Debug>,
+    P: Pattern<'a, Searcher: fmt::Debug>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple(stringify!(MatchIndices))
@@ -174,31 +118,29 @@ where
     }
 }
 
-impl<'a, P: Pattern<'a, N>, const N: usize> Iterator for MatchIndices<'a, P, N> {
-    type Item = (usize, [u8; N]);
+impl<'a, P: Pattern<'a>> Iterator for MatchIndices<'a, P> {
+    type Item = (usize, Vec<u8>);
 
     #[inline]
-    fn next(&mut self) -> Option<(usize, [u8; N])> {
+    fn next(&mut self) -> Option<(usize, Vec<u8>)> {
         self.0.next()
     }
 }
 
-impl<'a, P, const N: usize> Clone for MatchIndices<'a, P, N>
+impl<'a, P> Clone for MatchIndices<'a, P>
 where
-    P: Pattern<'a, N, Searcher: Clone>,
+    P: Pattern<'a, Searcher: Clone>,
 {
     fn clone(&self) -> Self {
         MatchIndices(self.0.clone())
     }
 }
 
-pub struct RMatchIndices<'a, P: Pattern<'a, N>, const N: usize>(
-    pub(super) MatchIndicesInternal<'a, P, N>,
-);
+pub struct RMatchIndices<'a, P: Pattern<'a>>(pub(super) MatchIndicesInternal<'a, P>);
 
-impl<'a, P, const N: usize> fmt::Debug for RMatchIndices<'a, P, N>
+impl<'a, P> fmt::Debug for RMatchIndices<'a, P>
 where
-    P: Pattern<'a, N, Searcher: fmt::Debug>,
+    P: Pattern<'a, Searcher: fmt::Debug>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple(stringify!(RMatchIndices))
@@ -207,50 +149,175 @@ where
     }
 }
 
-impl<'a, P, const N: usize> Iterator for RMatchIndices<'a, P, N>
+impl<'a, P> Iterator for RMatchIndices<'a, P>
 where
-    P: Pattern<'a, N, Searcher: ReverseSearcher<'a, N>>,
+    P: Pattern<'a, Searcher: ReverseSearcher<'a>>,
 {
-    type Item = (usize, [u8; N]);
+    type Item = (usize, Vec<u8>);
 
     #[inline]
-    fn next(&mut self) -> Option<(usize, [u8; N])> {
+    fn next(&mut self) -> Option<(usize, Vec<u8>)> {
         self.0.next_back()
     }
 }
 
-impl<'a, P, const N: usize> Clone for RMatchIndices<'a, P, N>
+impl<'a, P> Clone for RMatchIndices<'a, P>
 where
-    P: Pattern<'a, N, Searcher: Clone>,
+    P: Pattern<'a, Searcher: Clone>,
 {
     fn clone(&self) -> Self {
         RMatchIndices(self.0.clone())
     }
 }
 
-impl<'a, P: Pattern<'a, N>, const N: usize> FusedIterator for MatchIndices<'a, P, N> {}
+impl<'a, P: Pattern<'a>> FusedIterator for MatchIndices<'a, P> {}
 
-impl<'a, P, const N: usize> FusedIterator for RMatchIndices<'a, P, N> where
-    P: Pattern<'a, N, Searcher: ReverseSearcher<'a, N>>
+impl<'a, P> FusedIterator for RMatchIndices<'a, P> where
+    P: Pattern<'a, Searcher: ReverseSearcher<'a>>
 {
 }
 
-impl<'a, P, const N: usize> DoubleEndedIterator for MatchIndices<'a, P, N>
+impl<'a, P> DoubleEndedIterator for MatchIndices<'a, P>
 where
-    P: Pattern<'a, N, Searcher: DoubleEndedSearcher<'a, N>>,
+    P: Pattern<'a, Searcher: DoubleEndedSearcher<'a>>,
 {
     #[inline]
-    fn next_back(&mut self) -> Option<(usize, [u8; N])> {
+    fn next_back(&mut self) -> Option<(usize, Vec<u8>)> {
         self.0.next_back()
     }
 }
 
-impl<'a, P, const N: usize> DoubleEndedIterator for RMatchIndices<'a, P, N>
+impl<'a, P> DoubleEndedIterator for RMatchIndices<'a, P>
 where
-    P: Pattern<'a, N, Searcher: DoubleEndedSearcher<'a, N>>,
+    P: Pattern<'a, Searcher: DoubleEndedSearcher<'a>>,
 {
     #[inline]
-    fn next_back(&mut self) -> Option<(usize, [u8; N])> {
+    fn next_back(&mut self) -> Option<(usize, Vec<u8>)> {
+        self.0.next()
+    }
+}
+
+pub(super) struct MatchesInternal<'a, P: Pattern<'a>>(pub(super) P::Searcher);
+
+impl<'a, P> fmt::Debug for MatchesInternal<'a, P>
+where
+    P: Pattern<'a, Searcher: fmt::Debug>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("MatchInternal").field(&self.0).finish()
+    }
+}
+
+impl<'a, P: Pattern<'a>> MatchesInternal<'a, P> {
+    #[inline]
+    fn next(&mut self) -> Option<Vec<u8>> {
+        self.0
+            .next_match()
+            .map(|scale_indices| scale_indices.iter().map(|i| self.0.scale()[*i]).collect())
+    }
+
+    #[inline]
+    fn next_back(&mut self) -> Option<Vec<u8>>
+    where
+        P::Searcher: ReverseSearcher<'a>,
+    {
+        self.0
+            .next_match_back()
+            .map(|scale_indices| scale_indices.iter().map(|i| self.0.scale()[*i]).collect())
+    }
+}
+
+impl<'a, P> Clone for MatchesInternal<'a, P>
+where
+    P: Pattern<'a, Searcher: Clone>,
+{
+    fn clone(&self) -> Self {
+        let s = self;
+        MatchesInternal(s.0.clone())
+    }
+}
+
+pub struct Matches<'a, P: Pattern<'a>>(pub(super) MatchesInternal<'a, P>);
+
+impl<'a, P> fmt::Debug for Matches<'a, P>
+where
+    P: Pattern<'a, Searcher: fmt::Debug>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple(stringify!(Match)).field(&self.0).finish()
+    }
+}
+
+impl<'a, P: Pattern<'a>> Iterator for Matches<'a, P> {
+    type Item = Vec<u8>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Vec<u8>> {
+        self.0.next()
+    }
+}
+
+impl<'a, P> Clone for Matches<'a, P>
+where
+    P: Pattern<'a, Searcher: Clone>,
+{
+    fn clone(&self) -> Self {
+        Matches(self.0.clone())
+    }
+}
+
+pub struct RMatches<'a, P: Pattern<'a>>(pub(super) MatchesInternal<'a, P>);
+
+impl<'a, P> fmt::Debug for RMatches<'a, P>
+where
+    P: Pattern<'a, Searcher: fmt::Debug>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple(stringify!(RMatch)).field(&self.0).finish()
+    }
+}
+
+impl<'a, P> Iterator for RMatches<'a, P>
+where
+    P: Pattern<'a, Searcher: ReverseSearcher<'a>>,
+{
+    type Item = Vec<u8>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Vec<u8>> {
+        self.0.next_back()
+    }
+}
+
+impl<'a, P> Clone for RMatches<'a, P>
+where
+    P: Pattern<'a, Searcher: Clone>,
+{
+    fn clone(&self) -> Self {
+        RMatches(self.0.clone())
+    }
+}
+
+impl<'a, P: Pattern<'a>> FusedIterator for Matches<'a, P> {}
+
+impl<'a, P> FusedIterator for RMatches<'a, P> where P: Pattern<'a, Searcher: ReverseSearcher<'a>> {}
+
+impl<'a, P> DoubleEndedIterator for Matches<'a, P>
+where
+    P: Pattern<'a, Searcher: DoubleEndedSearcher<'a>>,
+{
+    #[inline]
+    fn next_back(&mut self) -> Option<Vec<u8>> {
+        self.0.next_back()
+    }
+}
+
+impl<'a, P> DoubleEndedIterator for RMatches<'a, P>
+where
+    P: Pattern<'a, Searcher: DoubleEndedSearcher<'a>>,
+{
+    #[inline]
+    fn next_back(&mut self) -> Option<Vec<u8>> {
         self.0.next()
     }
 }

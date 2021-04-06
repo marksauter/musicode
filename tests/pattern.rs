@@ -10,16 +10,17 @@ macro_rules! search_asserts {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Step<const N: usize> {
-    Matches([usize; N]),
-    Rejects([Option<usize>; N]),
+enum Step {
+    Matches(Vec<usize>),
+    Rejects(Vec<usize>),
+    Indices(Vec<usize>),
     Done,
 }
 
 use self::Step::*;
 
-impl<const N: usize> From<SearchStep<N>> for Step<N> {
-    fn from(x: SearchStep<N>) -> Self {
+impl From<SearchStep> for Step {
+    fn from(x: SearchStep) -> Self {
         match x {
             SearchStep::Match(a) => Matches(a),
             SearchStep::Reject(a) => Rejects(a),
@@ -28,23 +29,15 @@ impl<const N: usize> From<SearchStep<N>> for Step<N> {
     }
 }
 
-impl<const N: usize> From<Option<[usize; N]>> for Step<N> {
-    fn from(x: Option<[usize; N]>) -> Self {
+impl From<Option<Vec<usize>>> for Step {
+    fn from(x: Option<Vec<usize>>) -> Self {
         match x {
-            Some(a) => Matches(a),
+            Some(a) => Indices(a),
             None => Done,
         }
     }
 }
 
-impl<const N: usize> From<Option<[Option<usize>; N]>> for Step<N> {
-    fn from(x: Option<[Option<usize>; N]>) -> Self {
-        match x {
-            Some(a) => Rejects(a),
-            None => Done,
-        }
-    }
-}
 #[test]
 fn test_simple_interval_iteration() {
     search_asserts!(
@@ -56,31 +49,31 @@ fn test_simple_interval_iteration() {
             next, next, next, next, next, next, next, next, next, next, next, next
         ],
         [
-            Rejects([Some(0), Some(0)]),
-            Rejects([Some(0), Some(1)]),
-            Matches([0, 2]),
-            Rejects([Some(1), Some(1)]),
-            Rejects([Some(1), Some(2)]),
-            Rejects([Some(1), Some(3)]),
-            Rejects([Some(1), Some(4)]),
-            Rejects([Some(2), Some(2)]),
-            Rejects([Some(2), Some(3)]),
-            Rejects([Some(2), Some(4)]),
-            Rejects([Some(2), Some(5)]),
-            Rejects([Some(3), Some(3)]),
-            Rejects([Some(3), Some(4)]),
-            Matches([3, 5]),
-            Rejects([Some(4), Some(4)]),
-            Rejects([Some(4), Some(5)]),
-            Matches([4, 6]),
-            Rejects([Some(5), Some(5)]),
-            Rejects([Some(5), Some(6)]),
-            Rejects([Some(5), Some(0)]),
-            Rejects([Some(5), Some(1)]),
-            Rejects([Some(6), Some(6)]),
-            Rejects([Some(6), Some(0)]),
-            Rejects([Some(6), Some(1)]),
-            Rejects([Some(6), Some(2)]),
+            Rejects(vec![0, 0]),
+            Rejects(vec![0, 1]),
+            Matches(vec![0, 2]),
+            Rejects(vec![1, 1]),
+            Rejects(vec![1, 2]),
+            Rejects(vec![1, 3]),
+            Rejects(vec![1, 4]),
+            Rejects(vec![2, 2,]),
+            Rejects(vec![2, 3]),
+            Rejects(vec![2, 4]),
+            Rejects(vec![2, 5]),
+            Rejects(vec![3, 3]),
+            Rejects(vec![3, 4]),
+            Matches(vec![3, 5]),
+            Rejects(vec![4, 4]),
+            Rejects(vec![4, 5]),
+            Matches(vec![4, 6]),
+            Rejects(vec![5, 5]),
+            Rejects(vec![5, 6]),
+            Rejects(vec![5, 0]),
+            Rejects(vec![5, 1]),
+            Rejects(vec![6, 6]),
+            Rejects(vec![6, 0]),
+            Rejects(vec![6, 1]),
+            Rejects(vec![6, 2]),
             Done,
         ]
     );
@@ -98,48 +91,48 @@ fn test_simple_interval_iteration() {
             next_back, next_back, next_back
         ],
         [
-            Rejects([Some(6), Some(6)]),
-            Rejects([Some(6), Some(5)]),
-            Rejects([Some(6), Some(4)]),
-            Rejects([Some(6), Some(3)]),
-            Rejects([Some(6), Some(2)]),
-            Rejects([Some(6), Some(1)]),
-            Rejects([Some(5), Some(5)]),
-            Rejects([Some(5), Some(4)]),
-            Rejects([Some(5), Some(3)]),
-            Rejects([Some(5), Some(2)]),
-            Rejects([Some(5), Some(1)]),
-            Rejects([Some(5), Some(0)]),
-            Rejects([Some(4), Some(4)]),
-            Rejects([Some(4), Some(3)]),
-            Rejects([Some(4), Some(2)]),
-            Rejects([Some(4), Some(1)]),
-            Rejects([Some(4), Some(0)]),
-            Matches([4, 6]),
-            Rejects([Some(3), Some(3)]),
-            Rejects([Some(3), Some(2)]),
-            Rejects([Some(3), Some(1)]),
-            Rejects([Some(3), Some(0)]),
-            Rejects([Some(3), Some(6)]),
-            Matches([3, 5]),
-            Rejects([Some(2), Some(2)]),
-            Rejects([Some(2), Some(1)]),
-            Rejects([Some(2), Some(0)]),
-            Rejects([Some(2), Some(6)]),
-            Rejects([Some(2), Some(5)]),
-            Rejects([Some(2), Some(4)]),
-            Rejects([Some(1), Some(1)]),
-            Rejects([Some(1), Some(0)]),
-            Rejects([Some(1), Some(6)]),
-            Rejects([Some(1), Some(5)]),
-            Rejects([Some(1), Some(4)]),
-            Rejects([Some(1), Some(3)]),
-            Rejects([Some(0), Some(0)]),
-            Rejects([Some(0), Some(6)]),
-            Rejects([Some(0), Some(5)]),
-            Rejects([Some(0), Some(4)]),
-            Rejects([Some(0), Some(3)]),
-            Matches([0, 2]),
+            Rejects(vec![6, 6]),
+            Rejects(vec![6, 5]),
+            Rejects(vec![6, 4]),
+            Rejects(vec![6, 3]),
+            Rejects(vec![6, 2]),
+            Rejects(vec![6, 1]),
+            Rejects(vec![5, 5]),
+            Rejects(vec![5, 4]),
+            Rejects(vec![5, 3]),
+            Rejects(vec![5, 2]),
+            Rejects(vec![5, 1]),
+            Rejects(vec![5, 0]),
+            Rejects(vec![4, 4]),
+            Rejects(vec![4, 3]),
+            Rejects(vec![4, 2]),
+            Rejects(vec![4, 1]),
+            Rejects(vec![4, 0]),
+            Matches(vec![4, 6]),
+            Rejects(vec![3, 3]),
+            Rejects(vec![3, 2]),
+            Rejects(vec![3, 1]),
+            Rejects(vec![3, 0]),
+            Rejects(vec![3, 6]),
+            Matches(vec![3, 5]),
+            Rejects(vec![2, 2]),
+            Rejects(vec![2, 1]),
+            Rejects(vec![2, 0]),
+            Rejects(vec![2, 6]),
+            Rejects(vec![2, 5]),
+            Rejects(vec![2, 4]),
+            Rejects(vec![1, 1]),
+            Rejects(vec![1, 0]),
+            Rejects(vec![1, 6]),
+            Rejects(vec![1, 5]),
+            Rejects(vec![1, 4]),
+            Rejects(vec![1, 3]),
+            Rejects(vec![0, 0]),
+            Rejects(vec![0, 6]),
+            Rejects(vec![0, 5]),
+            Rejects(vec![0, 4]),
+            Rejects(vec![0, 3]),
+            Matches(vec![0, 2]),
             Done,
         ]
     );
@@ -152,7 +145,12 @@ fn test_simple_interval_search() {
         4u8,
         "next_match for scale",
         [next_match, next_match, next_match, next_match],
-        [Matches([0, 2]), Matches([3, 5]), Matches([4, 6]), Done]
+        [
+            Indices(vec![0, 2]),
+            Indices(vec![3, 5]),
+            Indices(vec![4, 6]),
+            Done
+        ]
     );
 
     search_asserts!(
@@ -165,7 +163,12 @@ fn test_simple_interval_search() {
             next_match_back,
             next_match_back
         ],
-        [Matches([4, 6]), Matches([3, 5]), Matches([0, 2]), Done]
+        [
+            Indices(vec![4, 6]),
+            Indices(vec![3, 5]),
+            Indices(vec![0, 2]),
+            Done
+        ]
     );
 
     search_asserts!(
@@ -183,13 +186,13 @@ fn test_simple_interval_search() {
             next_match_back
         ],
         [
-            Matches([6, 6]),
-            Matches([5, 5]),
-            Matches([4, 4]),
-            Matches([3, 3]),
-            Matches([2, 2]),
-            Matches([1, 1]),
-            Matches([0, 0]),
+            Indices(vec![6, 6]),
+            Indices(vec![5, 5]),
+            Indices(vec![4, 4]),
+            Indices(vec![3, 3]),
+            Indices(vec![2, 2]),
+            Indices(vec![1, 1]),
+            Indices(vec![0, 0]),
             Done
         ]
     );
@@ -224,28 +227,28 @@ fn test_simple_interval_search() {
             next_reject
         ],
         [
-            Rejects([Some(0), Some(0)]),
-            Rejects([Some(0), Some(1)]),
-            Rejects([Some(1), Some(1)]),
-            Rejects([Some(1), Some(2)]),
-            Rejects([Some(1), Some(3)]),
-            Rejects([Some(1), Some(4)]),
-            Rejects([Some(2), Some(2)]),
-            Rejects([Some(2), Some(3)]),
-            Rejects([Some(2), Some(4)]),
-            Rejects([Some(2), Some(5)]),
-            Rejects([Some(3), Some(3)]),
-            Rejects([Some(3), Some(4)]),
-            Rejects([Some(4), Some(4)]),
-            Rejects([Some(4), Some(5)]),
-            Rejects([Some(5), Some(5)]),
-            Rejects([Some(5), Some(6)]),
-            Rejects([Some(5), Some(0)]),
-            Rejects([Some(5), Some(1)]),
-            Rejects([Some(6), Some(6)]),
-            Rejects([Some(6), Some(0)]),
-            Rejects([Some(6), Some(1)]),
-            Rejects([Some(6), Some(2)]),
+            Indices(vec![0, 0]),
+            Indices(vec![0, 1]),
+            Indices(vec![1, 1]),
+            Indices(vec![1, 2]),
+            Indices(vec![1, 3]),
+            Indices(vec![1, 4]),
+            Indices(vec![2, 2]),
+            Indices(vec![2, 3]),
+            Indices(vec![2, 4]),
+            Indices(vec![2, 5]),
+            Indices(vec![3, 3]),
+            Indices(vec![3, 4]),
+            Indices(vec![4, 4]),
+            Indices(vec![4, 5]),
+            Indices(vec![5, 5]),
+            Indices(vec![5, 6]),
+            Indices(vec![5, 0]),
+            Indices(vec![5, 1]),
+            Indices(vec![6, 6]),
+            Indices(vec![6, 0]),
+            Indices(vec![6, 1]),
+            Indices(vec![6, 2]),
             Done,
         ]
     );
@@ -297,45 +300,45 @@ fn test_simple_interval_search() {
             next_reject_back
         ],
         [
-            Rejects([Some(6), Some(6)]),
-            Rejects([Some(6), Some(5)]),
-            Rejects([Some(6), Some(4)]),
-            Rejects([Some(6), Some(3)]),
-            Rejects([Some(6), Some(2)]),
-            Rejects([Some(6), Some(1)]),
-            Rejects([Some(5), Some(5)]),
-            Rejects([Some(5), Some(4)]),
-            Rejects([Some(5), Some(3)]),
-            Rejects([Some(5), Some(2)]),
-            Rejects([Some(5), Some(1)]),
-            Rejects([Some(5), Some(0)]),
-            Rejects([Some(4), Some(4)]),
-            Rejects([Some(4), Some(3)]),
-            Rejects([Some(4), Some(2)]),
-            Rejects([Some(4), Some(1)]),
-            Rejects([Some(4), Some(0)]),
-            Rejects([Some(3), Some(3)]),
-            Rejects([Some(3), Some(2)]),
-            Rejects([Some(3), Some(1)]),
-            Rejects([Some(3), Some(0)]),
-            Rejects([Some(3), Some(6)]),
-            Rejects([Some(2), Some(2)]),
-            Rejects([Some(2), Some(1)]),
-            Rejects([Some(2), Some(0)]),
-            Rejects([Some(2), Some(6)]),
-            Rejects([Some(2), Some(5)]),
-            Rejects([Some(2), Some(4)]),
-            Rejects([Some(1), Some(1)]),
-            Rejects([Some(1), Some(0)]),
-            Rejects([Some(1), Some(6)]),
-            Rejects([Some(1), Some(5)]),
-            Rejects([Some(1), Some(4)]),
-            Rejects([Some(1), Some(3)]),
-            Rejects([Some(0), Some(0)]),
-            Rejects([Some(0), Some(6)]),
-            Rejects([Some(0), Some(5)]),
-            Rejects([Some(0), Some(4)]),
-            Rejects([Some(0), Some(3)]),
+            Indices(vec![6, 6]),
+            Indices(vec![6, 5]),
+            Indices(vec![6, 4]),
+            Indices(vec![6, 3]),
+            Indices(vec![6, 2]),
+            Indices(vec![6, 1]),
+            Indices(vec![5, 5]),
+            Indices(vec![5, 4]),
+            Indices(vec![5, 3]),
+            Indices(vec![5, 2]),
+            Indices(vec![5, 1]),
+            Indices(vec![5, 0]),
+            Indices(vec![4, 4]),
+            Indices(vec![4, 3]),
+            Indices(vec![4, 2]),
+            Indices(vec![4, 1]),
+            Indices(vec![4, 0]),
+            Indices(vec![3, 3]),
+            Indices(vec![3, 2]),
+            Indices(vec![3, 1]),
+            Indices(vec![3, 0]),
+            Indices(vec![3, 6]),
+            Indices(vec![2, 2]),
+            Indices(vec![2, 1]),
+            Indices(vec![2, 0]),
+            Indices(vec![2, 6]),
+            Indices(vec![2, 5]),
+            Indices(vec![2, 4]),
+            Indices(vec![1, 1]),
+            Indices(vec![1, 0]),
+            Indices(vec![1, 6]),
+            Indices(vec![1, 5]),
+            Indices(vec![1, 4]),
+            Indices(vec![1, 3]),
+            Indices(vec![0, 0]),
+            Indices(vec![0, 6]),
+            Indices(vec![0, 5]),
+            Indices(vec![0, 4]),
+            Indices(vec![0, 3]),
             Done,
         ]
     );
@@ -348,7 +351,12 @@ fn double_ended_regression() {
         4u8,
         "alternating double ended search",
         [next_match, next_match_back, next_match, next_match_back],
-        [Matches([0, 2]), Matches([4, 6]), Matches([3, 5]), Done]
+        [
+            Indices(vec![0, 2]),
+            Indices(vec![4, 6]),
+            Indices(vec![3, 5]),
+            Done
+        ]
     );
     search_asserts!(
         &[0, 2, 4, 5, 7, 9, 11],
@@ -360,7 +368,12 @@ fn double_ended_regression() {
             next_match_back,
             next_match_back
         ],
-        [Matches([0, 2]), Matches([4, 6]), Matches([3, 5]), Done]
+        [
+            Indices(vec![0, 2]),
+            Indices(vec![4, 6]),
+            Indices(vec![3, 5]),
+            Done
+        ]
     );
     search_asserts!(
         &[0, 2, 4, 5, 7, 9, 11],
@@ -374,10 +387,10 @@ fn double_ended_regression() {
             next_match_back
         ],
         [
-            Matches([1, 3]),
-            Matches([6, 1]),
-            Matches([5, 0]),
-            Matches([2, 4]),
+            Indices(vec![1, 3]),
+            Indices(vec![6, 1]),
+            Indices(vec![5, 0]),
+            Indices(vec![2, 4]),
             Done
         ]
     );
@@ -391,13 +404,13 @@ fn test_simple_chord_iteration() {
         "forward iteration for scale",
         [next, next, next, next, next, next, next, next],
         [
-            Matches([0, 2, 4]),
-            Rejects([Some(1), Some(4), None]),
-            Rejects([Some(2), Some(5), None]),
-            Matches([3, 5, 0]),
-            Matches([4, 6, 1]),
-            Rejects([Some(5), Some(1), None]),
-            Rejects([Some(6), Some(2), None]),
+            Matches(vec![0, 2, 4]),
+            Rejects(vec![1, 4]),
+            Rejects(vec![2, 5]),
+            Matches(vec![3, 5, 0]),
+            Matches(vec![4, 6, 1]),
+            Rejects(vec![5, 1]),
+            Rejects(vec![6, 2]),
             Done
         ]
     );
@@ -408,13 +421,13 @@ fn test_simple_chord_iteration() {
         "reverse iteration for scale",
         [next_back, next_back, next_back, next_back, next_back, next_back, next_back, next_back],
         [
-            Rejects([None, None, Some(3)]),
-            Rejects([None, Some(0), Some(2)]),
-            Matches([4, 6, 1]),
-            Matches([3, 5, 0]),
-            Rejects([None, Some(4), Some(6)]),
-            Rejects([None, Some(3), Some(5)]),
-            Matches([0, 2, 4]),
+            Rejects(vec![6, 2]),
+            Rejects(vec![5, 1]),
+            Matches(vec![4, 6, 1]),
+            Matches(vec![3, 5, 0]),
+            Rejects(vec![2, 5]),
+            Rejects(vec![1, 4]),
+            Matches(vec![0, 2, 4]),
             Done
         ]
     );
@@ -428,9 +441,9 @@ fn test_simple_chord_search() {
         "next_match for scale",
         [next_match, next_match, next_match, next_match],
         [
-            Matches([0, 2, 4]),
-            Matches([3, 5, 0]),
-            Matches([4, 6, 1]),
+            Indices(vec![0, 2, 4]),
+            Indices(vec![3, 5, 0]),
+            Indices(vec![4, 6, 1]),
             Done
         ]
     );
@@ -446,9 +459,9 @@ fn test_simple_chord_search() {
             next_match_back
         ],
         [
-            Matches([4, 6, 1]),
-            Matches([3, 5, 0]),
-            Matches([0, 2, 4]),
+            Indices(vec![4, 6, 1]),
+            Indices(vec![3, 5, 0]),
+            Indices(vec![0, 2, 4]),
             Done
         ]
     );
